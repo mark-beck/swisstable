@@ -5,37 +5,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <immintrin.h>
-
-typedef struct {
-    char *content;
-    uint32_t size;
-} String;
-
-String init_string(char *str) {
-    size_t len = strlen(str);
-
-    char *content = malloc(len * sizeof(char) + 1);
-    memcpy(content, str, len + 1);
-
-    String string = {
-        .content = content,
-        .size = len
-    };
-
-    return string;
-}
-
-void free_string(String str) {
-    free(str.content);
-}
-
-bool string_eq(String s1, String s2) {
-    if (s1.size == s2.size) {
-        return memcmp(s1.content, s2.content, s1.size) == 0;
-    } else {
-        return false;
-    }
-}
+#include "string.h"
 
 #define _FREE_SLOT 0
 #define _RECLAIMED_SLOT 0b01111111
@@ -84,7 +54,7 @@ uint32_t _table_find_from(Table *table, uint32_t from, uint8_t hash) {
     assert(table->used_slots + table->reclaimed_slots < table->max_slots);
     assert(from < table->max_slots);
 
-    uint32_t first_reclaimed_idx = 0xFF;
+    uint32_t first_reclaimed_idx = 0xFFFFFFFF;
 
     __m128i key_mask = _mm_set1_epi8(hash);
     __m128i empty_mask = _mm_set1_epi8(_FREE_SLOT);
@@ -98,22 +68,21 @@ uint32_t _table_find_from(Table *table, uint32_t from, uint8_t hash) {
             uint16_t empty_matches = _mm_movemask_epi8(_mm_cmpeq_epi8(metadata_chunk, empty_mask));
             uint16_t reclaimed_matches = _mm_movemask_epi8(_mm_cmpeq_epi8(metadata_chunk, reclaimed_mask));
 
+            // if we have a reclaimed slot, we might have to update first_reclaimed
+            if (reclaimed_matches && first_reclaimed_idx == 0xFFFFFFFF) {
+                int first_reclaimed =  __builtin_ctz(reclaimed_matches);
+                first_reclaimed_idx = from + first_reclaimed;
+            }
+
             // if we find an empty slot or a match, we can return
             if (empty_matches || key_matches) {
-                int first_zero = __builtin_clz(empty_matches) - 16;
-                int first_match = __builtin_clz(key_matches) - 16;
+                int first_zero = __builtin_ctz(empty_matches);
+                int first_match = __builtin_ctz(key_matches);
                 if (first_match < first_zero) {
                     return from + first_match;
                 } else {
-                    int first_reclaimed =  __builtin_clz(reclaimed_matches) - 16;
-                    return first_zero < first_reclaimed ? from + first_zero : from + first_reclaimed;
+                    return from + first_zero < first_reclaimed_idx ? from + first_zero : first_reclaimed_idx;
                 }
-            }
-
-            // if we have a reclaimed slot, we might have to update first_reclaimed
-            if (reclaimed_matches && first_reclaimed_idx == 0xFF) {
-                int first_reclaimed =  __builtin_clz(reclaimed_matches) - 16;
-                first_reclaimed_idx = from + first_reclaimed;
             }
 
             from = (from + 16) % table->max_slots;
@@ -124,13 +93,13 @@ uint32_t _table_find_from(Table *table, uint32_t from, uint8_t hash) {
             }
 
             if (table->metadata[from] == _FREE_SLOT) {
-                if (first_reclaimed_idx != 0xFF) {
+                if (first_reclaimed_idx != 0xFFFFFFFF) {
                     return first_reclaimed_idx;
                 }
                 return from;
             }
 
-            if (first_reclaimed_idx == 0xFF && table->metadata[from] == _RECLAIMED_SLOT) {
+            if (first_reclaimed_idx == 0xFFFFFFFF && table->metadata[from] == _RECLAIMED_SLOT) {
                 first_reclaimed_idx = from;
             }
 

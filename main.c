@@ -1,26 +1,34 @@
 #include <stdio.h>
 #include "swisstable.h"
+#include "string.h"
 
 void run_n_inserts(long n) {
     Table table = init_table(1000);
 
     for (long i = 0; i < n; i++) {
-        char str[20];
-        snprintf(str, 24, "key-%ld", i);
+        char str[30];
+        snprintf(str, 30, "key-%ld", i);
         String key = init_string(str);
-        snprintf(str, 24, "val-%ld", i);
+        snprintf(str, 30, "val-%ld", i);
         String val = init_string(str);
         table_insert(&table, key, val);
     }
 
     for (long i = 0; i < n; i++) {
-        char str[20];
-        snprintf(str, 24, "key-%ld", i);
+        char str[30];
+        snprintf(str, 30, "key-%ld", i);
         String key = init_string(str);
-        snprintf(str, 24, "val-%ld", i);
+        snprintf(str, 30, "val-%ld", i);
         String val = init_string(str);
         String *res = table_get(&table, key);
+        if (res == NULL) {
+            printf("no value on key %s\n", key.content);
+            return;
+        }
+        assert(res != NULL);
         assert(string_eq(val, *res));
+        free_string(key);
+        free_string(val);
     }
     free_table(&table);
 }
@@ -39,6 +47,6 @@ int main() {
     printf("val1: %s\n", val1->content);
     free_table(&table);
 
-    run_n_inserts(500);
+    run_n_inserts(50000);
 }
 
