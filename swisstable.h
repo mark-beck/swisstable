@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
+#include <immintrin.h>
 
 typedef struct {
     char *content;
@@ -82,28 +84,58 @@ uint32_t _table_find_from(Table *table, uint32_t from, uint8_t hash) {
     assert(table->used_slots + table->reclaimed_slots < table->max_slots);
     assert(from < table->max_slots);
 
-    uint8_t mask = 0b10000000 | hash;
-    uint32_t first_reclaimed = 0;
-    bool found_first_free = false;
+    uint32_t first_reclaimed_idx = 0xFF;
+
+    __m128i key_mask = _mm_set1_epi8(hash);
+    __m128i empty_mask = _mm_set1_epi8(_FREE_SLOT);
+    __m128i reclaimed_mask = _mm_set1_epi8(_RECLAIMED_SLOT);
 
     while (true) {
-        if (table->metadata[from] == mask) {
-            return from;
-        }
+        // only compare 16 bytes at once when there is enough space to load 16 bytes from metadata
+        if (from + 16 < table->max_slots) {
+            __m128i metadata_chunk = _mm_loadu_si128((const __m128i_u *)(table->metadata + from));
+            uint16_t key_matches = _mm_movemask_epi8(_mm_cmpeq_epi8(metadata_chunk, key_mask));
+            uint16_t empty_matches = _mm_movemask_epi8(_mm_cmpeq_epi8(metadata_chunk, empty_mask));
+            uint16_t reclaimed_matches = _mm_movemask_epi8(_mm_cmpeq_epi8(metadata_chunk, reclaimed_mask));
 
-        if (table->metadata[from] == _FREE_SLOT) {
-            if (found_first_free) {
-                return first_reclaimed;
+            // if we find an empty slot or a match, we can return
+            if (empty_matches || key_matches) {
+                int first_zero = __builtin_clz(empty_matches) - 16;
+                int first_match = __builtin_clz(key_matches) - 16;
+                if (first_match < first_zero) {
+                    return from + first_match;
+                } else {
+                    int first_reclaimed =  __builtin_clz(reclaimed_matches) - 16;
+                    return first_zero < first_reclaimed ? from + first_zero : from + first_reclaimed;
+                }
             }
-            return from;
-        }
 
-        if (!found_first_free && table->metadata[from] == _RECLAIMED_SLOT) {
-            found_first_free = true;
-            first_reclaimed = from;
-        }
+            // if we have a reclaimed slot, we might have to update first_reclaimed
+            if (reclaimed_matches && first_reclaimed_idx == 0xFF) {
+                int first_reclaimed =  __builtin_clz(reclaimed_matches) - 16;
+                first_reclaimed_idx = from + first_reclaimed;
+            }
 
-        from = (from + 1) % table->max_slots;
+            from = (from + 16) % table->max_slots;
+        } else {
+            // do normal compare
+            if (table->metadata[from] == hash) {
+                return from;
+            }
+
+            if (table->metadata[from] == _FREE_SLOT) {
+                if (first_reclaimed_idx != 0xFF) {
+                    return first_reclaimed_idx;
+                }
+                return from;
+            }
+
+            if (first_reclaimed_idx == 0xFF && table->metadata[from] == _RECLAIMED_SLOT) {
+                first_reclaimed_idx = from;
+            }
+
+            from = (from + 1) % table->max_slots;
+        }   
     }
 }
 
