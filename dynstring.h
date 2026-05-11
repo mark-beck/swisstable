@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -15,6 +17,7 @@ String init_string(char *str) {
     size_t len = strlen(str);
 
     char *content = malloc(len * sizeof(char) + 1);
+
     memcpy(content, str, len + 1);
 
     String string = {
