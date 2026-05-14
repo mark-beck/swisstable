@@ -28,6 +28,17 @@ String init_string(char *str) {
     return string;
 }
 
+String string_view(char *str) {
+    size_t len = strlen(str);
+
+    String string = {
+        .content = str,
+        .size = len
+    };
+
+    return string;
+}
+
 void free_string(String str) {
     free(str.content);
 }
@@ -38,4 +49,8 @@ bool string_eq(String s1, String s2) {
     } else {
         return false;
     }
+}
+
+bool string_eq_str(String s1, char *s2) {
+    return strcmp(s1.content, s2) == 0;
 }

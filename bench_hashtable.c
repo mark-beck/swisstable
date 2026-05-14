@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include "hashtable.h"
-#define STRING_ARENA
 #include "dynstring.h"
 
 void run_n_inserts(long n) {
@@ -22,7 +21,7 @@ void run_n_inserts(long n) {
         snprintf(key, 30, "key-%ld", i);
         snprintf(str, 30, "val-%ld", i);
         String val = init_string(str);
-        String *res = hashtable_get_str(&table, key);
+        String *res = hashtable_get(&table, string_view(key));
         if (res == NULL) {
             printf("no value on key %s\n", key);
             return;
